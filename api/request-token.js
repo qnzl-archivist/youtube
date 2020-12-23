@@ -1,23 +1,22 @@
-const Youtube = require(`youtube-api`)
+const { google } = require('googleapis')
 
 const {
   YOUTUBE_CLIENT_ID,
   YOUTUBE_CLIENT_SECRET,
-  VERCEL_URL,
+  YOUTUBE_OAUTH_CALLBACK,
 } = process.env
 
 module.exports = async (req, res, next) => {
-  const yt = Youtube.authenticate({
-    type: `oauth`,
-    client_id: YOUTUBE_CLIENT_ID,
-    client_secret: YOUTUBE_CLIENT_SECRET,
-    redirect_url: `https://amos-youtube.vercel.app/api/oauth-callback`,
-  })
+  const yt = new google.auth.OAuth2(
+    YOUTUBE_CLIENT_ID,
+    YOUTUBE_CLIENT_SECRET,
+    YOUTUBE_OAUTH_CALLBACK,
+  )
 
   const url = yt.generateAuthUrl({
     access_type: `offline`,
     scope: [
-      `https://www.googleapis.com/auth/youtube`
+      `https://www.googleapis.com/auth/youtube`,
     ],
   })
 
