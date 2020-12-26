@@ -15,7 +15,7 @@ const auth = new google.auth.OAuth2(
   YOUTUBE_REDIRECT_URL
 )
 
-const getSubscriptions = async () => {
+const getSubscriptions = async (videoMapFunc) => {
   const { data: { items: subs } } = await Youtube.subscriptions.list({
     mine: true,
     part: [ `snippet` ],
@@ -23,7 +23,10 @@ const getSubscriptions = async () => {
   })
 
   const promises = subs.map(({ snippet: { resourceId: { channelId } } }) => {
-    return getAllVideos({ channelId })
+    return getVideos({
+      channelId,
+      publishedAfter: dayjs().subtract(1, `days`).format(),
+    }, videoMapFunc)
   })
 
   const results = await Promise.all(promises)
@@ -31,53 +34,28 @@ const getSubscriptions = async () => {
   return [].concat(...results)
 }
 
-const getAllVideos = async ({ channelId }) => {
+const getVideos = async (opts, mapFunc) => {
   const videos = []
 
   let nextPageToken
   let resultCount
 
+  // We want to do this once, to grab the intiail set of results
   do {
-    const response = await Youtube.search.list({
-      channelId,
-      part: `snippet`,
-      maxResults: 100,
-      // TODO Fix to 7 days
-      publishedAfter: dayjs().subtract(1, `day`).format()
-    })
-
-    const {
-      data: {
-        items,
-        nextPageToken: _pageToken,
-      }
-    } = response
-
-    const mappedVideos = items.map(({ snippet, id: { videoId } }) => ({ ...snippet, id: videoId }))
-
-    videos.push(...mappedVideos)
-
-    pageToken = _pageToken
-    resultCount = items.length
-  } while (resultCount === 100)
-
-  return videos
-}
-
-const getVideos = async (opts) => {
-  const videos = []
-
-  let nextPageToken
-  let resultCount
-
-  do {
+    // We only need snippet, to grab the video id
     const _opts = Object.assign({
       maxResults: 100,
       pageToken: nextPageToken,
       part: `snippet`
     }, opts)
 
-    const response = await Youtube.videos.list(_opts)
+    let response
+
+    if (_opts.channelId) {
+      response = await Youtube.search.list(_opts)
+    } else {
+      response = await Youtube.videos.list(_opts)
+    }
 
     const {
       data: {
@@ -86,7 +64,7 @@ const getVideos = async (opts) => {
       }
     } = response
 
-    const mappedVideos = items.map(({ snippet, id }) => ({ ...snippet, id, needsHydration: true }))
+    const mappedVideos = items.map(mapFunc)
 
     videos.push(...mappedVideos)
 
@@ -118,19 +96,47 @@ module.exports = async (req, res, next) => {
 
   google.options({ auth })
 
-  const subVideos = await getSubscriptions()
+  const { scope } = req.query
 
-  const likedVideos = await getVideos({
-    myRating: `like`,
-  })
+  let entities = []
 
-  const mostPopularVideos = await getVideos({
-    chart: `mostPopular`,
-  })
+  // Taking responses and mapping them into what we want outputted, to strip away cruft
+  const videoMapFunc = ({ snippet, id }) => ({ ...snippet, id, needsHydration: true })
+  const subVideoMapFunc = ({ snippet, id: { videoId } }) => {
+
+    if (!videoId || (snippet.liveBroadcastContent && snippet.liveBroadcastContent === `upcoming`)) {
+      return {}
+    }
+
+    return { ...snippet, id: videoId }
+  }
+
+  switch(scope) {
+    case `subscriptions`:
+      entities = await getSubscriptions(subVideoMapFunc)
+
+      break
+    case `likes`:
+      entities = await getVideos({
+        myRating: `like`,
+      }, videoMapFunc)
+
+      break
+    case `popular`:
+      entities = await getVideos({
+        chart: `mostPopular`,
+      }, videoMapFunc)
+
+      break
+  }
+
+  // Remove falsey entities
+  // We may null out entities to get rid of them
+  // if they are results we don't need / want, such as playlists
+  // from Youtube.search.list
+  entities = entities.filter(Boolean)
 
   return res.json({
-    mostPopularVideos,
-    likedVideos,
-    subVideos,
+    entities,
   })
 }
