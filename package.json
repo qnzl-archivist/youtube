@@ -9,6 +9,7 @@
   "author": "Madeline Cameron <maddie@qnzl.co>",
   "license": "MIT",
   "dependencies": {
+    "dayjs": "^1.10.4",
     "googleapis": "^66.0.0",
     "youtube-api": "^3.0.1"
   }

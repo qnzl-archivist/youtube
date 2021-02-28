@@ -7,6 +7,8 @@ const {
   YOUTUBE_REDIRECT_URL,
 } = process.env
 
+console.log("ID:", YOUTUBE_CLIENT_ID)
+console.log("SECRET:", YOUTUBE_CLIENT_SECRET)
 const Youtube = google.youtube(`v3`)
 
 const auth = new google.auth.OAuth2(
@@ -98,7 +100,6 @@ module.exports = async (req, res, next) => {
 
   const { scope } = req.query
 
-  let entities = []
 
   // Taking responses and mapping them into what we want outputted, to strip away cruft
   const videoMapFunc = ({ snippet, id }) => ({ ...snippet, id, needsHydration: true })
@@ -111,32 +112,42 @@ module.exports = async (req, res, next) => {
     return { ...snippet, id: videoId }
   }
 
-  switch(scope) {
-    case `subscriptions`:
-      entities = await getSubscriptions(subVideoMapFunc)
+  const scopes = scope.split(`,`)
 
-      break
-    case `likes`:
-      entities = await getVideos({
-        myRating: `like`,
-      }, videoMapFunc)
+  const scopedEntities = scopes.map(async (_scope) => {
+    let entities = {}
+    switch(scope) {
+      case `subscriptions`:
+        entities = await getSubscriptions(subVideoMapFunc)
 
-      break
-    case `popular`:
-      entities = await getVideos({
-        chart: `mostPopular`,
-      }, videoMapFunc)
+        break
+      case `likes`:
+        entities = await getVideos({
+          myRating: `like`,
+        }, videoMapFunc)
 
-      break
-  }
+        break
+      case `popular`:
+        entities = await getVideos({
+          chart: `mostPopular`,
+        }, videoMapFunc)
+
+        break
+    }
+
+    entities = entities.filter(Boolean)
+
+    return { [scope]: entities }
+  })
+
+  const mergedEntities = { ...scopedEntities }
 
   // Remove falsey entities
   // We may null out entities to get rid of them
   // if they are results we don't need / want, such as playlists
   // from Youtube.search.list
-  entities = entities.filter(Boolean)
 
   return res.json({
-    entities,
+    entities: mergedEntities,
   })
 }
